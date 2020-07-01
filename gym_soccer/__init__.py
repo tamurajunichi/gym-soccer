@@ -26,3 +26,11 @@ register(
     reward_threshold=8.0,
     nondeterministic = True,
 )
+
+register(
+    id='SoccerMultiagent-v0',
+    entry_point='gym.envs:SoccerMultiagentEnv',
+    timestep_limit=1000,
+    reward_threshold=1.0,
+    nondeterministic = True,
+)

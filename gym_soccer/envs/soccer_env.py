@@ -3,6 +3,7 @@ import gym
 from gym import error, spaces
 from gym import utils
 from gym.utils import seeding
+import numpy as np
 
 try:
     import hfo_py
@@ -23,15 +24,33 @@ class SoccerEnv(gym.Env, utils.EzPickle):
         self._configure_environment()
         self.env = hfo_py.HFOEnvironment()
         self.env.connectToServer(config_dir=hfo_py.get_config_path())
+        # ここでgetStateSize()がint型だとこの先のSpaces.Boxの__init()でtuple(shape)つまりtuple(int型)になるためTypeErrorでる
+        #self.observation_space = spaces.Box(low=-1, high=1,
+        #                                    shape=(self.env.getStateSize()))
+        #そのため以下に変更
         self.observation_space = spaces.Box(low=-1, high=1,
-                                            shape=(self.env.getStateSize()))
+                                            shape=(self.env.getStateSize(),))
         # Action space omits the Tackle/Catch actions, which are useful on defense
+        # action_spaceもshapeでTypeErrrorがでる
+        #self.action_space = spaces.Tuple((spaces.Discrete(3),
+        #                                  spaces.Box(low=0, high=100, shape=(1,)),
+        #                                  spaces.Box(low=-180, high=180, shape=(1,)),
+        #                                  spaces.Box(low=-180, high=180, shape=(1,)),
+        #                                  spaces.Box(low=0, high=100, shape=(1,)),
+        #                                  spaces.Box(low=-180, high=180, shape=(1,))))
+        #そのため以下に変更、参考：https://github.com/cycraig/gym-soccer/blob/master/gym_soccer/envs/soccer_env.py
+        low0 = np.array([0, -180], dtype=np.float32)
+        high0 = np.array([100, 180], dtype=np.float32)
+        low1 = np.array([-180], dtype=np.float32)
+        high1 = np.array([180], dtype=np.float32)
+        low2 = np.array([0, -180], dtype=np.float32)
+        high2 = np.array([100, 180], dtype=np.float32)
+        low3 = np.array([-180], dtype=np.float32)
+        high3 = np.array([180], dtype=np.float32)
         self.action_space = spaces.Tuple((spaces.Discrete(3),
-                                          spaces.Box(low=0, high=100, shape=1),
-                                          spaces.Box(low=-180, high=180, shape=1),
-                                          spaces.Box(low=-180, high=180, shape=1),
-                                          spaces.Box(low=0, high=100, shape=1),
-                                          spaces.Box(low=-180, high=180, shape=1)))
+                                          spaces.Box(low=low0, high=high0, dtype=np.float32),
+                                          spaces.Box(low=low1, high=high1, dtype=np.float32),
+                                          spaces.Box(low=low2, high=high2, dtype=np.float32)))
         self.status = hfo_py.IN_GAME
 
     def __del__(self):
@@ -40,6 +59,9 @@ class SoccerEnv(gym.Env, utils.EzPickle):
         os.kill(self.server_process.pid, signal.SIGINT)
         if self.viewer is not None:
             os.kill(self.viewer.pid, signal.SIGKILL)
+
+    def _seed(self, seed=None):
+        pass
 
     def _configure_environment(self):
         """
@@ -103,13 +125,15 @@ class SoccerEnv(gym.Env, utils.EzPickle):
               " --connect --port %d" % (self.server_port)
         self.viewer = subprocess.Popen(cmd.split(' '), shell=False)
 
+    # {'status': STATUS_LOOKUP[self.status]}の追加
+    # 参考：https://github.com/cycraig/gym-soccer/blob/master/gym_soccer/envs/soccer_env.py
     def _step(self, action):
         self._take_action(action)
         self.status = self.env.step()
         reward = self._get_reward()
         ob = self.env.getState()
         episode_over = self.status != hfo_py.IN_GAME
-        return ob, reward, episode_over, {}
+        return ob, reward, episode_over, {'status': STATUS_LOOKUP[self.status]}
 
     def _take_action(self, action):
         """ Converts the action space into an HFO action. """
@@ -156,4 +180,14 @@ ACTION_LOOKUP = {
     2 : hfo_py.KICK,
     3 : hfo_py.TACKLE, # Used on defense to slide tackle the ball
     4 : hfo_py.CATCH,  # Used only by goalie to catch the ball
+}
+
+# hfo_py.hfo.hfoの64行目にステータス情報書かれてる
+STATUS_LOOKUP = {
+    hfo_py.IN_GAME: 'IN_GAME',
+    hfo_py.SERVER_DOWN: 'SERVER_DOWN',
+    hfo_py.GOAL: 'GOAL',
+    hfo_py.OUT_OF_BOUNDS: 'OUT_OF_BOUNDS',
+    hfo_py.OUT_OF_TIME: 'OUT_OF_TIME',
+    hfo_py.CAPTURED_BY_DEFENSE: 'CAPTURED_BY_DEFENSE',
 }
